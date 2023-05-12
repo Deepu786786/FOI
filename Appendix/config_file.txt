@@ -1,0 +1,15 @@
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+model-file=ssd-mobilenet.onnx
+label-file=labels.txt
+batch-size=1
+network-mode=1
+num-detected-classes=1
+interval=0
+gie-unique-id=1
+input-source=3
+[source]
+type=3
+uri=v4l2:///dev/video0
+num-buffers=-1

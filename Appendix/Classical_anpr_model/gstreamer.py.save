@@ -1,0 +1,28 @@
+import gi
+gi.require_version('Gst','1.0')
+gi.require_version('GObject','2.0')
+from gi.repository import Gst
+
+Gst.init(sys.argv)
+
+pipeline = Gst.Pipeline()
+
+source = Gst.ElementFactory.make('uridecodebin','source')
+videoconvert = Gst.ElementFactory.make('videoconvert','videoconvert')
+videosink = Gst.ElementFactory.make('nvoverlaysink', 'videosink')
+
+
+
+if not pipeline or not source or not videoconvert or not videosink:
+print('Failed to create elements')
+sys.exit(1)
+
+cam_url = "rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1\&subtype=0"
+sourc.set_property('uri', cam_url)
+
+
+
+
+pipeline.add(source)
+pipeline.add(videoconvert)
+pipeline.add(videosink) 
