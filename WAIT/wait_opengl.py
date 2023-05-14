@@ -1,51 +1,54 @@
-import jetson.inference
-import jetson.utils
+import cv2
+import jetson_inference
+import jetson_utils
+import numpy as np
+from wait_functions import camset, detectPlate, characterSegmentation, reorientCudaimg, recognizePlate, getNumberPlate
+from wait_functions import cudaToOpencv, put_Text, put_FPS
 
-# net = jetson.inference.detectNet(model='./weights_plate/plate_ssdmobilenetv1.onnx', labels='./weights_plate/labels.txt', input_blob='input_0', output_cvg='scores', output_bbox='boxes', threshold=0.2)
-net = jetson.inference.detectNet(model='./weights_ocr/ocr_ssdmobilenetv1.onnx', labels='./weights_ocr/labels.txt', input_blob='input_0', output_cvg='scores', output_bbox='boxes', threshold=0.1)
+net_plate = jetson_inference.detectNet(model='./weights_plate/plate_ssdmobilenetv1.onnx', labels='./weights_plate/labels.txt', input_blob='input_0', output_cvg='scores', output_bbox='boxes', threshold=0.7)
+# net_ocr = jetson_inference.detectNet(model='./weights_ocr/ocr_ssdmobilenetv1.onnx', labels='./weights_ocr/labels.txt', input_blob='input_0', output_cvg='scores', output_bbox='boxes', threshold=0.5)
 
-camera_url = "rtsp://admin:Dd22864549*@10.13.1.60:554/cam/realmonitor?channel=1&subtype=0"
-
-# camera = jetson.utils.gstCamera(640, 480, "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 latency=0 ! rtph264depay ! h264parse ! nvv412decoder ! nvvidconv ! video/x-raw, format=BGRx, width=640, height=480")
-# camera = jetson.utils.gstCamera(640, 480, camera_url)
-camera = jetson.utils.gstCamera(1280,720,'/dev/video0')
-
-display = jetson.utils.glDisplay()
-display.SetTitle("WAIT SYSTEM")
+camera = camset()
 
 
-while display.IsOpen():
+# display = jetson_utils.glDisplay()
 
-	img, width, height = camera.CaptureRGBA(zeroCopy=True)
-	
-	detections = net.Detect(img, width, height, overlay='lines,labels,conf')
-	
-	vehicleCount=0
-	carcount=0
-	for detect in detections:
-		ID = detect.ClassID
-		item = net.GetClassDesc(ID)
-		left=detect.Left
-		top=detect.Top
-		bottom=detect.Bottom
-		right=detect.Right
-		print(item)
 
-		# if ID>1 and ID<10:
-		# 	vehicleCount+=1
-		# if item=='car':
-		# 	carcount+=1
-	
+# while display.IsOpen():
+while True:
 
-	display.RenderOnce(img, width, height)
-	#display.BeginRender()
-	#display.Render(img)
-	#display.EndRender()
-	
-#	print out performance info
-	display.SetTitle("Object Detection | Network {fps:.0f} FPS | Vehicle_Counts = {counts}". format(fps=net.GetNetworkFPS(), counts=vehicleCount))
-	
-#	net.PrintProfilerTimes()
+	cudaimg, width, height = camera.CaptureRGBA(zeroCopy=True)
+	jetson_utils.cudaDeviceSynchronize()
 
-display.Close()
-camera.release()
+	# img = reorientCudaimg(img,width,height,+15)
+
+	plate_img,coords = detectPlate(cudaimg,width,height,net_plate)
+
+	# plate_img = cv2.resize(plate_img,None,fx=1.5,fy=1.5,interpolation=cv2.INTER_CUBIC)
+	# plate_img = cv2.resize(plate_img,None,fx=0.5,fy=0.5,interpolation=cv2.INTER_AREA)
+
+	plate_preprocessed = characterSegmentation(plate_img)
+
+	# plate_preprocessed = cv2.resize(plate_preprocessed,None,fx=2,fy=2,interpolation=cv2.INTER_CUBIC)
+
+	number = getNumberPlate(plate_preprocessed)
+
+	# ocrimg,ocrwidth,ocrheight = recognizePlate(plate_preprocessed,net_ocr)
+	# filtered_detections = apply_nms(bbox_list, confidence_threshold=0.7, iou_threshold=0.5)
+
+	opcimg = cudaToOpencv(cudaimg,width,height)
+	left = int(coords[0])
+	bottom = int(coords[2])
+	opcimg = put_Text(opcimg,number,left,bottom,2,(0,0,255),2)
+	opcimg = put_FPS(opcimg)
+
+	cv2.imshow('Number plate',opcimg)
+
+
+
+	# display.SetTitle("WAIT SYSTEM | NetworkFPS = "+str(round(net_plate.GetNetworkFPS(),0))+" fps")
+
+	if cv2.waitKey(1) & 0xFF == ord("q"):
+		break
+
+camera.Close()
