@@ -4,29 +4,56 @@ import numpy as np
 from skimage.segmentation import clear_border
 import pytesseract
 import time
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
+
+
+
+
+cred = credentials.Certificate('./wait-and-track-system-firebase-adminsdk-ggjw1-8c62434bca.json')
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://wait-and-track-system-default-rtdb.asia-southeast1.firebasedatabase.app/'
+})
+ref = db.reference('/Detected_plates')
+
+def sendToFirebase(number="-"):
+    ref.push('License_Plate: '+number)
+
 
 
 def camset():
+    # gst-launch-1.0 rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1\&subtype=0 latency=0 ! queue ! rtph264depay ! queue ! h264parse ! queue !  omxh264dec ! nvvidconv ! xvimagesink
+
     # camera_url = "rtsp://admin:Dd22864549*@10.13.1.60:554/cam/realmonitor?channel=1&subtype=0"
+    camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! xvimagesink"
+    # camera_url = "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 latency=0 ! rtph264depay ! h264parse ! nvv412decoder ! nvvidconv ! video/x-raw, format=BGRx, width=640, height=480"
     # camera = jetson_utils.gstCamera(640, 480, "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 latency=0 ! rtph264depay ! h264parse ! nvv412decoder ! nvvidconv ! video/x-raw, format=BGRx, width=640, height=480")
     # camera = jetson_utils.gstCamera(640, 480, camera_url)
-    camera = jetson_utils.gstCamera(1280,720,'/dev/video0')
+    camera = jetson_utils.videoSource(camera_url)
     # cam = cv2.VideoCapture("/dev/video0")
 
     return camera
 
 
 def camset2():
-	camera_url = "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0"
-	# cam = cv2.VideoCapture(camera_url)
-	cam = cv2.VideoCapture('/dev/video0')
+	# gst-launch-1.0 rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1\&subtype=0 latency=0 ! queue ! rtph264depay ! queue ! h264parse ! queue !  omxh264dec ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink
 
-	cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-	if not cam.isOpened():
-		print("Error opening RTSP stream.")
-		exit()
+    # camera_url = "rtsp://admin:Dd22864549*@10.13.1.60:554/cam/realmonitor?channel=1&subtype=0"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=480, height=360 ! appsink drop=1"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=640, height=480 ! appsink drop=1"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=1280, height=720 ! appsink drop=1"
+    camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=1920, height=1080 ! appsink drop=1"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! appsink"
+    cam = cv2.VideoCapture(camera_url, cv2.CAP_GSTREAMER)
+    
+    # cam = cv2.VideoCapture('/dev/video0')
+    # cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-	return cam
+    if not cam.isOpened():
+        print("Error opening RTSP stream.")
+
+    return cam
 
 
 def put_Text(frame,text='NoText', x=10, y=10, font_scale=2, color=(0,0,255), text_thickness=1):
@@ -54,7 +81,7 @@ def put_FPS(frame):
 	text = 'FPS: '+str(round(fpsfilt,2))
 	frame = put_Text(frame,text,x=5,y=10,font_scale=1,text_thickness=2)
 
-	return frame
+	return frame,text
 
 
 def put_Rect(img,top,left,bottom,right):
@@ -145,29 +172,18 @@ def characterSegmentation(plate):
     # Sharpening
     gaussian_blur = cv2.GaussianBlur(grayplate,(7,7),10)
     sharpen = cv2.addWeighted(grayplate,3.5,gaussian_blur,-2.5,2)
-    
 
     # perform otsu thresh (using binary inverse since opencv contours work better with white text)
     ret, thresh = cv2.threshold(sharpen, 0, 255, cv2.THRESH_OTSU | cv2.THRESH_BINARY_INV)
-
 
     rect_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
 
     # White thickening
     thresh_dilate = cv2.dilate(thresh, rect_kern, iterations = 1)
-
-
-    thresh_cb = clear_border(thresh)
-    # cv2.imshow('thresh_cb',thresh_cb)
-
     thresh_dilatecb = clear_border(thresh_dilate)
-    # cv2.imshow('thresh_dilatecb',thresh_dilatecb)
-    
-    # thresh_cbinv = cv2.bitwise_not(thresh_cb)
-    # cv2.imshow('thresh_cvinv',thresh_cbinv)
 
+    # thresh_dilatecbinv = cv2.bitwise_not(thresh_dilate)
     thresh_dilatecbinv = cv2.bitwise_not(thresh_dilatecb)
-    ##cv2.imshow('thresh_dilatecvinv',thresh_dilatecbinv)
 
     return thresh_dilatecbinv
 
