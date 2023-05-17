@@ -1,15 +1,86 @@
 #This is a function file for anpr project
 import cv2
+import jetson_inference,jetson_utils
 import pytesseract
 import numpy as np
 import time
-import torch
-from PIL import Image
-#import jetson_inference,jetson_utils
+# import torch
 import matplotlib.pyplot as plt
-#from skimage.segmentation import clear_border
+from skimage.segmentation import clear_border
 
-# img = cv2.imread("Numberplate_images/numberplate_11.jpeg")
+
+
+def camset():
+
+    # camera_url = "rtsp://admin:Dd22864549*@10.13.1.60:554/cam/realmonitor?channel=1&subtype=0"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=480, height=360 ! appsink drop=1"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=640, height=480 ! appsink drop=1"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=1280, height=720 ! appsink drop=1"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=1920, height=1080 ! appsink drop=1"
+    
+    # cam = cv2.VideoCapture(camera_url, cv2.CAP_GSTREAMER)
+
+    cam = cv2.VideoCapture('/dev/video0')
+    # cam.set(cv2.CAP_PROP_BUFFERSIZE, 10)
+
+    if not cam.isOpened():
+        print("Error opening camera.")
+
+    return cam
+
+
+def opencvToCuda(frame):
+    cudaimg = cv2.cvtColor(frame,cv2.COLOR_BGR2RGBA).astype(np.float32)
+    cudaimg = jetson_utils.cudaFromNumpy(cudaimg)
+    return cudaimg
+
+
+def cudaToOpencv(cudaimg,width,height):
+
+    numpy_array = jetson_utils.cudaToNumpy(cudaimg,width,height,4)
+    img = cv2.cvtColor(numpy_array.astype(np.uint8), cv2.COLOR_RGBA2BGR)
+    return img
+
+
+def put_Text(frame,text='NoText', x=10, y=10, font_scale=2, color=(0,0,255), text_thickness=1):
+
+	if isinstance(text,float) or isinstance(text,int):
+		text = str(round(text,2))
+	
+	font = cv2.FONT_HERSHEY_SIMPLEX
+	text_size = cv2.getTextSize(text,font, font_scale, text_thickness)[0]
+	text_x = x + 10
+	text_y = y + 15
+
+	return cv2.putText(frame, text, (text_x, text_y), font, font_scale, color, text_thickness)
+
+
+timestamp = time.time()
+fpsfilt=0
+def put_FPS(frame):
+	global timestamp, fpsfilt
+	dt = time.time()-timestamp
+	timestamp=time.time()
+	fps=1/dt
+	fpsfilt = 0.9*fpsfilt+0.1*fps
+	
+	text = 'FPS: '+str(round(fpsfilt,2))
+	frame = put_Text(frame,text,x=5,y=10,font_scale=1,text_thickness=2)
+
+	return frame,text
+
+
+def put_Rect(img,top,left,bottom,right):
+	green_color = (0,255,0)
+	thickness = 1
+	start_point = (left,top)
+	end_point = (right,bottom)
+
+	img = cv2.rectangle(img, start_point, end_point, green_color, thickness)
+
+	return img
+
+
 
 def vehicle_detector(net,img): 
     height,width = img.shape[0],img.shape[1]		
@@ -32,6 +103,7 @@ def vehicle_detector(net,img):
             return car_img
 
     return img
+
 
 
 def yolo_detector(model,img):
@@ -83,6 +155,8 @@ def plot_boxes(results, frame, classes):
 
     # return frame
 
+
+
 def filter_text(region, ocr_result, region_threshold):
     rectangle_size = region.shape[0]*region.shape[1]
     
@@ -97,22 +171,28 @@ def filter_text(region, ocr_result, region_threshold):
     return plate 
 
 
-def plate_detector(img):
-    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+
+def haarcascade_detector(frame):
+
+    gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+
     plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
     if plate_cascade.empty():
         print("Error: Cascade Classifier file not found or cannot be loaded.")
-        exit()
+        return frame,[0,0,0,0]
 
     plates = plate_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
     if len(plates) == 0:
-        print("Error: Number plate not detected.")
-        return img
+        # print("Error: Number plate not detected.")
+        return frame,[0,0,0,0]
 
     for (x,y,w,h) in plates:
-        a,b = (int(0.02*img.shape[0]), int(0.025*img.shape[1]))
-        plate = img[y+a:y+h-a, x+b:x+w-b,:]
-        return plate
+        a,b = (int(0.02*frame.shape[0]), int(0.025*frame.shape[1]))
+
+        plate = frame[y+a:y+h-a, x+b:x+w-b,:]
+
+        # return plate,[(y+a), (x+b), (y+h-a), (x+w-b)]
+        return plate,[(y), (x), (y+h), (x+w)]
 
 
 
@@ -258,93 +338,24 @@ def plate_Filter(cnts):
 
 def characterSegmentation(plate):
     grayplate = cv2.cvtColor(plate,cv2.COLOR_BGR2GRAY)
-    # grayplate = cv2.resize(grayplate, None, fx = 3, fy = 3, interpolation = cv2.INTER_CUBIC)
-    
-    # Noise reduction
-    # bilateral = cv2.bilateralFilter(grayplate, d=9, sigmaColor=75, sigmaSpace=75)
-    
 
     # Sharpening
     gaussian_blur = cv2.GaussianBlur(grayplate,(7,7),10)
     sharpen = cv2.addWeighted(grayplate,3.5,gaussian_blur,-2.5,2)
-    
 
     # perform otsu thresh (using binary inverse since opencv contours work better with white text)
     ret, thresh = cv2.threshold(sharpen, 0, 255, cv2.THRESH_OTSU | cv2.THRESH_BINARY_INV)
 
+    rect_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
 
-    # White text thickening
-    rect_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-    dilation = cv2.dilate(thresh, rect_kern, iterations = 2)
+    # White thickening
+    thresh_dilate = cv2.dilate(thresh, rect_kern, iterations = 1)
+    thresh_dilatecb = clear_border(thresh_dilate)
 
+    # thresh_dilatecbinv = cv2.bitwise_not(thresh_dilate)
+    thresh_dilatecbinv = cv2.bitwise_not(thresh_dilatecb)
 
-
-    cv2.imshow('grayplate',grayplate)
-    cv2.imshow('sharpen',sharpen)
-    cv2.imshow('thresh',thresh)
-    cv2.imshow("dilation", dilation)
-
-    # # Make borders white
-    # img_lp = cv2.resize(image, (333, 75))
-    # img_binary_lp[0:3,:] = 255
-    # img_binary_lp[:,0:3] = 255
-    # img_binary_lp[72:75,:] = 255
-    # img_binary_lp[:,330:333] = 255
-
-    cv2.waitKey(0)
-
-
-    # # find contours
-    # # try:
-    # #     contours, hierarchy = cv2.findContours(dilation, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    # # except:
-    # #     ret_img, contours, hierarchy = cv2.findContours(dilation, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-    # # contours, hierarchy = cv2.findContours(dilation, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    # contours, hierarchy = cv2.findContours(dilation, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # sorted_contours = sorted(contours, key=lambda ctr: cv2.boundingRect(ctr)[0])
-
-
-    # gplate = grayplate.copy()
-    # cv2.drawContours(gplate,contours,-1,(0,255,0),3)
-
-
-    # # loop through contours and find letters in license plate
-    # gplate2 = grayplate.copy()
-    # plate_num = ""
-    # for cnt in sorted_contours:
-    #     x,y,w,h = cv2.boundingRect(cnt)
-        
-    #     # height, width = gplate2.shape
-    #     # # if height of box is not a quarter of total height then skip
-    #     # if height / float(h) > 6: continue
-    #     # ratio = h / float(w)
-    #     # # if height to width ratio is less than 1.5 skip
-    #     # if ratio < 1.5: continue
-    #     # area = h * w
-    #     # # if width is not more than 25 pixels skip
-    #     # if width / float(w) > 15: continue
-    #     # # if area is less than 100 pixels skip
-    #     # if area < 100: continue
-
-
-    #     # draw the rectangle
-    #     rect = cv2.rectangle(gplate2, (x,y), (x+w, y+h), (0,255,0),2)
-    #     roi = thresh[y-5:y+h+5, x-5:x+w+5]
-    #     roi = cv2.bitwise_not(roi)
-    #     roi = cv2.medianBlur(roi, 5)
-    #     cv2.imshow("ROI", roi)
-    #     try:
-    #         text = pytesseract.image_to_string(roi, config='-c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3')
-    #         #clean tesseract text by removing any unwanted blank spaces
-    #         clean_text = re.sub('[\W_]+','',text)
-    #         plate_num += text
-    #     except:
-    #         text = None
-    # if plate_num != None:
-    #     print("License Plate #:",plate_num)
-
+    return thresh_dilatecbinv
 
 
 

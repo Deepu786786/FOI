@@ -48,10 +48,10 @@ def camset2():
     cam = cv2.VideoCapture(camera_url, cv2.CAP_GSTREAMER)
     
     # cam = cv2.VideoCapture('/dev/video0')
-    # cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    # cam.set(cv2.CAP_PROP_BUFFERSIZE, 10)
 
     if not cam.isOpened():
-        print("Error opening RTSP stream.")
+        print("Error opening camera.")
 
     return cam
 
