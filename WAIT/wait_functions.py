@@ -4,6 +4,7 @@ import numpy as np
 from skimage.segmentation import clear_border
 import pytesseract
 import time
+from PIL import Image
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
@@ -21,39 +22,39 @@ def sendToFirebase(number="-"):
     ref.push('License_Plate: '+number)
 
 
-
 def camset():
-    # gst-launch-1.0 rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1\&subtype=0 latency=0 ! queue ! rtph264depay ! queue ! h264parse ! queue !  omxh264dec ! nvvidconv ! xvimagesink
-
-    # camera_url = "rtsp://admin:Dd22864549*@10.13.1.60:554/cam/realmonitor?channel=1&subtype=0"
-    camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! xvimagesink"
-    # camera_url = "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 latency=0 ! rtph264depay ! h264parse ! nvv412decoder ! nvvidconv ! video/x-raw, format=BGRx, width=640, height=480"
-    # camera = jetson_utils.gstCamera(640, 480, "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 latency=0 ! rtph264depay ! h264parse ! nvv412decoder ! nvvidconv ! video/x-raw, format=BGRx, width=640, height=480")
-    # camera = jetson_utils.gstCamera(640, 480, camera_url)
-    camera = jetson_utils.videoSource(camera_url)
-    # cam = cv2.VideoCapture("/dev/video0")
-
-    return camera
-
-
-def camset2():
 	# gst-launch-1.0 rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1\&subtype=0 latency=0 ! queue ! rtph264depay ! queue ! h264parse ! queue !  omxh264dec ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink
 
     # camera_url = "rtsp://admin:Dd22864549*@10.13.1.60:554/cam/realmonitor?channel=1&subtype=0"
     # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=480, height=360 ! appsink drop=1"
     # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=640, height=480 ! appsink drop=1"
     # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=1280, height=720 ! appsink drop=1"
-    camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=1920, height=1080 ! appsink drop=1"
+    # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! application/x-rtp, media=video ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! video/x-raw, width=1920, height=1080 ! appsink drop=1"
     # camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@192.168.100.61:554 latency=0 ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! appsink"
-    cam = cv2.VideoCapture(camera_url, cv2.CAP_GSTREAMER)
+    # cam = cv2.VideoCapture(camera_url, cv2.CAP_GSTREAMER)
     
-    # cam = cv2.VideoCapture('/dev/video0')
+    cam = cv2.VideoCapture('/dev/video0')
     # cam.set(cv2.CAP_PROP_BUFFERSIZE, 10)
 
     if not cam.isOpened():
         print("Error opening camera.")
 
     return cam
+
+
+def camset2():
+    # gst-launch-1.0 rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1\&subtype=0 latency=0 ! queue ! rtph264depay ! queue ! h264parse ! queue !  omxh264dec ! nvvidconv ! xvimagesink
+
+    # camera_url = "rtsp://admin:Dd22864549*@10.13.1.60:554/cam/realmonitor?channel=1&subtype=0"
+    camera_url = "rtspsrc location=rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 ! rtph264depay ! h264parse ! omxh264dec ! nvvidconv ! xvimagesink"
+    # camera_url = "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 latency=0 ! rtph264depay ! h264parse ! nvv412decoder ! nvvidconv ! video/x-raw, format=BGRx, width=640, height=480"
+    # cam = jetson_utils.gstCamera(640, 480, "rtsp://admin:Dd22864549*@10.13.1.61:554/cam/realmonitor?channel=1&subtype=0 latency=0 ! rtph264depay ! h264parse ! nvv412decoder ! nvvidconv ! video/x-raw, format=BGRx, width=640, height=480")
+    # cam = jetson_utils.gstCamera(640, 480, camera_url)
+    cam = jetson_utils.videoSource(camera_url)
+
+    return cam
+
+
 
 
 def put_Text(frame,text='NoText', x=10, y=10, font_scale=2, color=(0,0,255), text_thickness=1):
@@ -142,7 +143,7 @@ def detectPlate(cudaimg,width,height,net):
     sortedlist = sorted(platelist, key=lambda x:[x[1],x[0]], reverse=True)
 
     if len(sortedlist) == 0:
-        return opencvimg,[0,0,0,0]
+        return opencvimg,[0,0,0,0],0
 
     plate = sortedlist[0]
 
@@ -153,7 +154,7 @@ def detectPlate(cudaimg,width,height,net):
 
     plate_img = opencvimg[int(top):int(bottom),int(left):int(right)]
 
-    return plate_img,[left,top,bottom,right]
+    return plate_img,[left,top,bottom,right],plate[0]
 
 
 def recognizePlate(frame,net):
@@ -322,6 +323,58 @@ def getNumberPlate(segmented_plate):
     text = pytesseract.image_to_string(segmented_plate,config='-c tessedit_char_whitelist='+alphanumeric+' --psm 7 --oem 3')
     return text
 
+
+def yolo_detector(model,img):
+    
+    frame = img
+    # frame = cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
+    image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))    
+    results = model(image, size=640)
+    frame = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
+    
+    classes = model.names
+
+    labels, cordinates = results.xyxyn[0][:, -1], results.xyxyn[0][:, :-1]
+
+    x_shape, y_shape = frame.shape[1], frame.shape[0]
+
+    detections=[]
+    for i in range(len(labels)):
+        row = cordinates[i]
+        left = int(row[0]*x_shape)
+        top = int(row[1]*y_shape)
+        right = int(row[2]*x_shape)
+        bottom = int(row[3]*y_shape)
+        conf = row[4]
+        class_label = classes[int(labels[i])]
+        
+        detections.append([[top,left,bottom,right],conf,class_label])
+            
+    return detections
+
+
+
+def haarcascade_detector(frame):
+
+    gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+
+    plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
+    if plate_cascade.empty():
+        print("Error: Cascade Classifier file not found or cannot be loaded.")
+        return frame,[0,0,0,0]
+
+    plates = plate_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
+    if len(plates) == 0:
+        # print("Error: Number plate not detected.")
+        return frame,[0,0,0,0]
+
+    for (x,y,w,h) in plates:
+        a,b = (int(0.02*frame.shape[0]), int(0.025*frame.shape[1]))
+
+        plate = frame[y+a:y+h-a, x+b:x+w-b,:]
+
+        # return plate,[(y+a), (x+b), (y+h-a), (x+w-b)]
+        return plate,[(y), (x), (y+h), (x+w)]
 
 # #Non-Maximum Suppression to discard redundant and overlapping bounding boxes
 # def apply_nms(detections, confidence_threshold=0.7, iou_threshold=0.5):
